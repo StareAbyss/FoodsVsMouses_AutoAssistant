@@ -15,6 +15,7 @@ from function.core.FAA_Battle import Battle
 from function.core.FAA_BattleARoundPreparation import BattleARoundPreparation
 from function.core_battle.get_position_in_battle import get_position_card_deck_in_battle, \
     get_position_card_cell_in_battle
+from function.globals.extra import EXTRA_GLOBALS
 from function.globals.get_paths import PATHS
 from function.globals.init_resources import RESOURCE_P
 from function.globals.log import CUS_LOGGER
@@ -66,7 +67,7 @@ class FAA:
         self.stage_info = None
         self.is_main = None
         self.is_group = None
-        self.is_use_key = None
+        self.need_key = None
         self.deck = None
         self.quest_card = None
         self.ban_card_list = None
@@ -205,13 +206,13 @@ class FAA:
     """调用输入关卡配置和战斗配置, 在战斗前必须进行该操作"""
 
     def set_config_for_battle(
-            self, stage_id="NO-1-1", is_group=False, is_main=True, is_use_key=True,
+            self, stage_id="NO-1-1", is_group=False, is_main=True, need_key=True,
             deck=1, quest_card="None", ban_card_list=None,
             battle_plan_index=0) -> None:
         """
         :param is_group: 是否组队
         :param is_main: 是否是主要账号(单人为True 双人房主为True)
-        :param is_use_key: 是否使用钥匙
+        :param need_key: 是否使用钥匙
         :param deck:
         :param quest_card:
         :param ban_card_list:
@@ -220,12 +221,12 @@ class FAA:
         :return:
         """
 
-        if ban_card_list is None:
+        if (ban_card_list is None) or (ban_card_list is ["None"]):
             ban_card_list = []
 
         self.is_main = is_main
         self.is_group = is_group
-        self.is_use_key = is_use_key
+        self.need_key = need_key
         self.deck = deck
         self.quest_card = quest_card
         self.ban_card_list = ban_card_list
@@ -234,6 +235,7 @@ class FAA:
         if self.ban_card_list:
             self.ban_card_list.append("冰淇淋")
             self.ban_card_list.append("幻幻鸡")
+
         # 双倍ban承载 ban软糖
         if "木盘子" in self.ban_card_list:
             self.ban_card_list.append("魔法软糖")
@@ -248,8 +250,15 @@ class FAA:
                 PATHS["battle_plan"],
                 battle_plan_list[battle_plan_index]
             )
-            with open(battle_plan_path, "r", encoding="UTF-8") as file:
-                return json.load(file)
+
+            # 自旋锁读写, 防止多线程读写问题
+            while EXTRA_GLOBALS.file_is_reading_or_writing:
+                time.sleep(0.1)
+            EXTRA_GLOBALS.file_is_reading_or_writing = True  # 文件被访问
+            with open(file=battle_plan_path, mode="r", encoding="UTF-8") as file:
+                data = json.load(file)
+            EXTRA_GLOBALS.file_is_reading_or_writing = False  # 文件已解锁
+            return data
 
         self.battle_plan_0 = read_json_to_battle_plan()
 
@@ -471,8 +480,8 @@ class FAA:
                     "location_to": []
                 }
 
-                # 首位插入
-                list_cell_all.insert(0, dict_quest)
+                # 第二位插入
+                list_cell_all.insert(1, dict_quest)
                 return list_cell_all
 
         def calculation_card_ban(list_cell_all):
@@ -519,7 +528,7 @@ class FAA:
                     "location_from": mat_card_position[i]["location_from"],
                     "location_to": []}
                 # 首位插入
-                list_cell_all.insert(0, dict_mat)
+                list_cell_all.insert(1, dict_mat)
 
             return list_cell_all
 
@@ -782,11 +791,24 @@ class FAA:
                         # 添加到任务列表
                         quest_list.append(
                             {
-                                "player": [2, 1],
                                 "stage_id": stage_id,
-                                "quest_card": quest_card
+                                "player": [2, 1],
+                                "need_key": True,
+                                "max_times": 1,
+                                "dict_exit": {
+                                    "other_time_player_a": [],
+                                    "other_time_player_b": [],
+                                    "last_time_player_a": ["竞技岛"],
+                                    "last_time_player_b": ["竞技岛"]
+                                },
+                                "deck": None,  # 外部输入
+                                "quest_card": quest_card,
+                                "ban_card_list": [],
+                                "battle_plan_1p": None,  # 外部输入
+                                "battle_plan_2p": None,  # 外部输入
                             }
                         )
+
         if mode == "情侣任务":
 
             for i in ["1", "2", "3"]:
@@ -810,11 +832,24 @@ class FAA:
                         if find_p:
                             quest_list.append(
                                 {
+                                    "stage_id": quest.split(".")[0],  # 去掉.png
                                     "player": [2, 1],
-                                    "stage_id": quest.split(".")[0],
-                                    "quest_card": "None"
+                                    "need_key": True,
+                                    "max_times": 1,
+                                    "dict_exit": {
+                                        "other_time_player_a": [],
+                                        "other_time_player_b": [],
+                                        "last_time_player_a": ["竞技岛"],
+                                        "last_time_player_b": ["竞技岛"]
+                                    },
+                                    "deck": None,  # 外部输入
+                                    "quest_card": "None",
+                                    "ban_card_list": [],
+                                    "battle_plan_1p": None,  # 外部输入
+                                    "battle_plan_2p": None,  # 外部输入
                                 }
                             )
+
         if mode == "美食大赛":
             y_dict = {0: 359, 1: 405, 2: 448, 3: 491, 4: 534, 5: 570}
             for i in range(6):
@@ -833,20 +868,28 @@ class FAA:
                         # 处理解析字符串
                         quest = quest.split(".")[0]  # 去除.png
                         battle_sets = quest.split("_")
+                        ban_card_list = battle_sets[4].split(",")
+                        # 如果 ['None'] -> []
+                        if ban_card_list == ['None']:
+                            ban_card_list = []
+
                         quest_list.append(
                             {
                                 "stage_id": battle_sets[0],
                                 "player": [self.player] if battle_sets[1] == "1" else [2, 1],  # 1 单人 2 组队
-                                "is_use_key": bool(battle_sets[2]),  # 注意类型转化
+                                "need_key": bool(battle_sets[2]),  # 注意类型转化
                                 "max_times": 1,
-                                "quest_card": battle_sets[3],
-                                "list_ban_card": battle_sets[4].split(","),
                                 "dict_exit": {
                                     "other_time_player_a": [],
                                     "other_time_player_b": [],
                                     "last_time_player_a": ["竞技岛", "美食大赛领取"],
                                     "last_time_player_b": ["竞技岛", "美食大赛领取"]
-                                }
+                                },
+                                "deck": None,  # 外部输入
+                                "quest_card": battle_sets[3],
+                                "ban_card_list": ban_card_list,
+                                "battle_plan_1p": None,  # 外部输入
+                                "battle_plan_2p": None,  # 外部输入
                             }
                         )
 
@@ -1765,7 +1808,7 @@ class FAA:
             for location in [[405, 190], [405, 320], [860, 190]]:
                 T_ACTION_QUEUE_TIMER.add_click_to_queue(handle=self.handle, x=location[0], y=location[1])
                 # 这个破商店点快了兑换不了
-                time.sleep(1.333)
+                time.sleep(2)
 
         # 退出商店界面
         for i in range(2):

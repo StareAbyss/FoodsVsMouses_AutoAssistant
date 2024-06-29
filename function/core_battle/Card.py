@@ -8,8 +8,9 @@ from function.globals.init_resources import RESOURCE_P
 from function.globals.thread_action_queue import T_ACTION_QUEUE_TIMER
 
 
-def compare_pixels(img_source, img_template):
+def compare_pixels(img_source, img_template, mode="top"):
     """
+    :param mode: 模式, 检测图片的哪些部分 "top" "bottom" "all"
     :param img_source: 目标图像 三维numpy数组 不能包含Alpha
     :param img_template: 模板图像 三维numpy数组 不能包含Alpha
 
@@ -26,10 +27,13 @@ def compare_pixels(img_source, img_template):
     # 将图片的数字转化为int32 而非int8 防止做减法溢出
     img_template = img_template.astype(np.int32)
 
-    flag1 = check_pixel_similarity(img_source, img_template, 0, 36)
-    flag2 = check_pixel_similarity(img_source, img_template, 36, 85)
+    return_bool = True
+    if mode in ["top", "all"]:
+        return_bool = return_bool and check_pixel_similarity(img_source, img_template, 0, 36)
+    if mode in ["bottom", "all"]:
+        return_bool = return_bool and check_pixel_similarity(img_source, img_template, 36, 85)
 
-    return flag1 and flag2
+    return return_bool
 
 
 def check_pixel_similarity(img_source, img_template, start, end, threshold=16):
@@ -52,7 +56,7 @@ class Card:
 
         """直接从FAA类读取的属性"""
         self.handle = self.faa.handle
-        self.is_use_key = self.faa.is_use_key
+        self.need_key = self.faa.need_key
         self.is_auto_battle = self.faa.is_auto_battle
         self.faa_battle = self.faa.faa_battle
         self.player = self.faa.player
@@ -114,14 +118,13 @@ class Card:
                 handle=self.handle,
                 x=self.location_to[j][0],
                 y=self.location_to[j][1])
-        time.sleep(self.click_sleep * j+1)
 
         # 放卡后点一下空白
         T_ACTION_QUEUE_TIMER.add_move_to_queue(handle=self.handle, x=200, y=350)
-        time.sleep(self.click_sleep)
-
         T_ACTION_QUEUE_TIMER.add_click_to_queue(handle=self.handle, x=200, y=350)
-        time.sleep(self.click_sleep)
+
+        # 天知又双叒叕把时间sleep操作改成了聚合的 这是否会导致问题呢... 这会需要进一步测试
+        time.sleep(self.click_sleep * (j + 3))
 
         # 如果启动队列模式放卡参数, 使用一次后, 第一个目标位置移动到末位
         if self.queue:
@@ -131,15 +134,12 @@ class Card:
             self.location_to.remove(self.location_to[0])
 
         # 额外时延
-        time.sleep(0.1)
+        time.sleep(0.2)
 
         # 如果放卡后还可用,自ban 若干s
         # 判断可用 如果不知道其还可用。会导致不自ban，导致无意义点击出现，后果更小。1轮扫描后纠正。
         # 判断冷却 如果不知道其进入了冷却。会导致错误的额外的自ban，导致放卡逻辑错乱。ban描述后纠正。
         self.fresh_status()
-
-        # 额外时延
-        time.sleep(0.1)
 
         if self.status_usable and (self.name not in self.ban_white_list):
             # 放置失败 说明放满了 如果不在白名单 就自ban
@@ -209,15 +209,43 @@ class Card:
                 pixels_all[0].append(pixel)
         pixels_all = np.array(pixels_all)
 
-        self.status_usable = (compare_pixels(pixels_all, RESOURCE_P["card"]["状态判定"]["可用状态_0.png"][:, :, :3]) or
-                              compare_pixels(pixels_all, RESOURCE_P["card"]["状态判定"]["可用状态_1.png"][:, :, :3]) or
-                              compare_pixels(pixels_all, RESOURCE_P["card"]["状态判定"]["可用状态_2.png"][:, :, :3]) or
-                              compare_pixels(pixels_all, RESOURCE_P["card"]["状态判定"]["可用状态_3.png"][:, :, :3]))
+        self.status_usable = (
+                compare_pixels(
+                    img_source=pixels_all,
+                    img_template=RESOURCE_P["card"]["状态判定"]["可用状态_0.png"][:, :, :3],
+                    mode='top') or
+                compare_pixels(
+                    img_source=pixels_all,
+                    img_template=RESOURCE_P["card"]["状态判定"]["可用状态_1.png"][:, :, :3],
+                    mode='top') or
+                compare_pixels(
+                    img_source=pixels_all,
+                    img_template=RESOURCE_P["card"]["状态判定"]["可用状态_2.png"][:, :, :3],
+                    mode='top') or
+                compare_pixels(
+                    img_source=pixels_all,
+                    img_template=RESOURCE_P["card"]["状态判定"]["可用状态_3.png"][:, :, :3],
+                    mode='top')
+        )
 
-        self.status_cd = (compare_pixels(pixels_all, RESOURCE_P["card"]["状态判定"]["冷却状态_0.png"][:, :, :3]) or
-                          compare_pixels(pixels_all, RESOURCE_P["card"]["状态判定"]["冷却状态_1.png"][:, :, :3]) or
-                          compare_pixels(pixels_all, RESOURCE_P["card"]["状态判定"]["冷却状态_2.png"][:, :, :3]) or
-                          compare_pixels(pixels_all, RESOURCE_P["card"]["状态判定"]["冷却状态_3.png"][:, :, :3]))
+        self.status_cd = (
+                compare_pixels(
+                    img_source=pixels_all,
+                    img_template=RESOURCE_P["card"]["状态判定"]["冷却状态_0.png"][:, :, :3],
+                    mode='top') or
+                compare_pixels(
+                    img_source=pixels_all,
+                    img_template=RESOURCE_P["card"]["状态判定"]["冷却状态_1.png"][:, :, :3],
+                    mode='top') or
+                compare_pixels(
+                    img_source=pixels_all,
+                    img_template=RESOURCE_P["card"]["状态判定"]["冷却状态_2.png"][:, :, :3],
+                    mode='top') or
+                compare_pixels(
+                    img_source=pixels_all,
+                    img_template=RESOURCE_P["card"]["状态判定"]["冷却状态_3.png"][:, :, :3],
+                    mode='top')
+        )
 
     def destroy(self):
         self.faa = None
