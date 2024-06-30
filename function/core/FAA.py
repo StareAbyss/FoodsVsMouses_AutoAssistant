@@ -48,7 +48,7 @@ class FAA:
         if self.signal_dict:
             self.signal_print_to_ui = self.signal_dict["print_to_ui"]
             self.signal_dialog = self.signal_dict["dialog"]
-            self.signal_end = self.signal_dict["end"]
+            self.signal_todo_end = self.signal_dict["end"]
 
         # 随机种子
         self.random_seed = random_seed
@@ -414,7 +414,7 @@ class FAA:
 
     def init_battle_plan_1(self) -> None:
         """
-        计算所有卡片的部署方案
+        战斗方案解析器 - 用于根据战斗方案的json和关卡等多种信息, 解析计算为卡片的部署方案 供战斗方案执行器执行
         Return:卡片的部署方案字典
             example = [
                 {
@@ -449,13 +449,10 @@ class FAA:
         def calculation_card_quest(list_cell_all):
             """计算步骤一 加入任务卡的摆放坐标"""
 
-            # 任务卡 大号小号开始位置不同 任务卡id = 0 则为没有
-            quest_card_locations = ["6-1", "6-2", "6-3", "6-4", "6-5", "6-6", "6-7"]
+            if quest_card != "None":
 
-            if quest_card == "None":
-                return list_cell_all
-
-            else:
+                # 任务卡 位置
+                quest_card_locations = ["6-1", "6-2", "6-3", "6-4", "6-5", "6-6", "6-7"]
 
                 # 遍历删除 方案的放卡中 占用了任务卡摆放的棋盘位置
                 list_cell_all = [
@@ -480,9 +477,15 @@ class FAA:
                     "location_to": []
                 }
 
-                # 第二位插入
-                list_cell_all.insert(1, dict_quest)
-                return list_cell_all
+                # 可能是空列表 即花瓶
+                if len(list_cell_all) == 0:
+                    # 首位插入
+                    list_cell_all.insert(0, dict_quest)
+                else:
+                    # 第二位插入
+                    list_cell_all.insert(1, dict_quest)
+
+            return list_cell_all
 
         def calculation_card_ban(list_cell_all):
             """步骤二 ban掉某些卡, 依据[卡组信息中的name字段] 和 ban卡信息中的字符串 是否重复"""
@@ -527,8 +530,14 @@ class FAA:
                     "queue": True,
                     "location_from": mat_card_position[i]["location_from"],
                     "location_to": []}
-                # 首位插入
-                list_cell_all.insert(1, dict_mat)
+
+                # 可能是空列表 即花瓶
+                if len(list_cell_all) == 0:
+                    # 首位插入
+                    list_cell_all.insert(0, dict_mat)
+                else:
+                    # 第二位插入
+                    list_cell_all.insert(1, dict_mat)
 
             return list_cell_all
 
@@ -865,9 +874,23 @@ class FAA:
                         match_tolerance=0.999)
 
                     if find_p:
-                        # 处理解析字符串
+                        # 处理解析字符串 格式
                         quest = quest.split(".")[0]  # 去除.png
-                        battle_sets = quest.split("_")
+                        battle_sets = quest.split("_")  # 根据_符号 拆成list
+
+                        # 打什么关卡 文件中: 关卡名称
+                        stage_id = battle_sets[0]
+
+                        # 是否组队 文件中: 1 单人 2 组队
+                        player = [self.player] if battle_sets[1] == "1" else [2, 1]
+
+                        # 是否使用钥匙 文件中: 0 or 1 -> bool
+                        need_key = bool(battle_sets[2])
+
+                        # 任务卡: "None" or 其他
+                        quest_card = battle_sets[3]
+
+                        # Ban卡表: "None" or 其他, 多个值用逗号分割
                         ban_card_list = battle_sets[4].split(",")
                         # 如果 ['None'] -> []
                         if ban_card_list == ['None']:
@@ -875,9 +898,9 @@ class FAA:
 
                         quest_list.append(
                             {
-                                "stage_id": battle_sets[0],
-                                "player": [self.player] if battle_sets[1] == "1" else [2, 1],  # 1 单人 2 组队
-                                "need_key": bool(battle_sets[2]),  # 注意类型转化
+                                "stage_id": stage_id,
+                                "player": player,
+                                "need_key": need_key,  # 注意类型转化
                                 "max_times": 1,
                                 "dict_exit": {
                                     "other_time_player_a": [],
@@ -886,7 +909,7 @@ class FAA:
                                     "last_time_player_b": ["竞技岛", "美食大赛领取"]
                                 },
                                 "deck": None,  # 外部输入
-                                "quest_card": battle_sets[3],
+                                "quest_card": quest_card,
                                 "ban_card_list": ban_card_list,
                                 "battle_plan_1p": None,  # 外部输入
                                 "battle_plan_2p": None,  # 外部输入
